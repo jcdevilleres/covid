@@ -3,15 +3,15 @@ title: "Capstone Project - CYO"
 author: "Jean-Claude de Villeres"
 date: "March 19, 2020"
 output:
-  html_document:
-    df_print: paged
-    toc: yes
-    toc_depth: '3'
   pdf_document:
     latex_engine: xelatex
     number_sections: yes
     toc: yes
     toc_depth: 3
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '3'
 geometry: margin= 2cm
 ---
 
@@ -169,15 +169,18 @@ Majority of the cases in China are from Hubei. Italy, Iran and South Korea also 
 Note that the following plot:
 * It is much better viewed in .html version (uploaded in Github) or upon running the .Rmd file 
 * If both fails, you can still use the PDF file but zoom in on the map to detect the changes.
-```{r, fig.width=40, fig.height=120}
+```{r, fig.width=6, fig.height=12}
 # Load our time series data
 covid_data_timeseries <- read_csv(str_c('time_series_covid_19_confirmed.csv'))
-# Set to 50 daily entries count
-n_times <- 50
+# Due to plotting issues of all 50 maps, we will only get 10% and 90% percentile of date points (i.e., Day 1 to 5, and Day 45 to 50)
+covid_data_timeseries <- covid_data_timeseries[,-15:-44]
+# Set the daily entries count
+n_times <- ncol(covid_data_timeseries) - 4
+n_times
 # Prepare timeseries data, parse latitude longtiude data
 covid_data_ts_latlong <- covid_data_timeseries
 colnames(covid_data_ts_latlong) <- c(colnames(covid_data_ts_latlong)[1:4],
-  str_c('D1: ', str_pad(as.character(1:n_times), 2, 'left', '0'),
+  str_c('Global Map: ', str_pad(as.character(1:n_times), 2, 'left', '0'),
         str_c(' - ', colnames(covid_data_ts_latlong)[5:(4 + n_times)])))
 # Pivot our latitude longitude data for ggplot use
 covid_data_ts_latlong_pivot <- covid_data_ts_latlong %>% pivot_longer(names_to = 'Confirmed.Time',
@@ -189,16 +192,16 @@ world <- map_data('world')
 ggplot(legend = FALSE) +
   # Plot our map
   geom_polygon(data = world, aes(x = long, y = lat, group = group),
-               color = 'black', fill = 'antiquewhite') +  xlab('') + ylab('') + 
+               color = 'black', fill = 'lightgreen') +  xlab('') + ylab('') + 
   # Plot points of our confirmed cases using latitude/longitude data
   geom_point(data = covid_data_ts_latlong_pivot, fill = 'red', color = 'black',
              shape = 21, alpha = 0.6,
              aes(x = Long, y = Lat, fill = Confirmed, size = Confirmed)) +
   theme_minimal() +
   # Set the scale from 0 to 30 for the shapes in the map
-  scale_size_continuous(range = c(0, 30)) + ggtitle('Occurrences Map - COVID19') +
-  theme(text = element_text(size = 12), legend.position = 'top',
-        panel.background = element_rect(fill='lightblue', colour='blue')) +
+  scale_size_continuous(range = c(0, 15)) + ggtitle('Occurrences Map - COVID19') +
+  theme(text = element_text(size = 5), legend.position = 'top',
+        panel.background = element_rect(fill='lightblue', colour='black')) +
   facet_wrap(~Confirmed.Time, ncol = 2)
 ```
 
@@ -349,3 +352,4 @@ In this short exercise we were able to explore the Coronavirus dataset and do a 
 * Particular attention to recent events, lock-downs, and bans, and how they relate with the forecasting.
 
 * Finally, humanity as a whole is ever-hopeful and optimistic in finding a vaccine. A model forecasting the decline in Confirmed cases as a product of developing a vaccine will be useful for future consideration.
+
