@@ -1,0 +1,351 @@
+---
+title: "Capstone Project - CYO"
+author: "Jean-Claude de Villeres"
+date: "March 19, 2020"
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '3'
+  pdf_document:
+    latex_engine: xelatex
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+geometry: margin= 2cm
+---
+
+```{r include=FALSE}
+rm(list=ls())
+
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load("ggplot2", "dplyr", "GGally", "caret","glmnet","DAAG","lubridate",
+               "reshape2","smooth","DT","rnaturalearth","caret","sf","sp","tidyverse",
+               "maps","spatstat","forecast","readr","zoo","TTR","rgeos")
+
+covid_data <- read.csv("covid_19_data.csv", header = TRUE)
+# Convert the ObservationDate from "factor" to "Date" class to make plotting much easier
+covid_data$ObservationDate <- as.Date(covid_data$ObservationDate, format='%m/%d/%Y')
+```
+
+# Introduction
+This capstone report aims to explore the Coronavirus dataset from Kaggle and do a straight-forward forecast on the number of cases for the next 50 days. We will explore the data to find various trends and patterns and also to forecast using different models future Coronavirus cases. The dataset consists of around 4,935 rows of records of daily cases from January 22 to March 11. The data is mainly sourced out from Johns Hopkins University for education and academic research purposes, where they aggregated data from variou globalresources such as, World Health Organization, US Center for Disease Control, Canadian Government, China CDC, Italy Ministry of Health and others. 
+
+The following are the column descriptions:
+  * Sno - Serial number
+  * ObservationDate - Date of the observation in MM/DD/YYYY
+  * Province/State - Province or state of the observation (Could be empty when missing)
+  * Country/Region - Country of observation
+  * Last Update - Time in UTC at which the row is updated for the given province or country
+  * Confirmed - Cumulative number of confirmed cases till that date
+  * Deaths - Cumulative number of of deaths till that date
+  * Recovered - Cumulative number of recovered cases till that date
+
+Here is the link for the dataset <https://www.kaggle.com/sudalairajkumar/novel-corona-virus-2019-dataset>
+
+# Methods and Analysis
+We will explore the data using dplyr summarize / groupby methods and ggplot to analyze patterns in the dataset. We will also try to print a global map of cases before and after the pandemic. Equipped with the resulting information, we will generate various models to forecast the number of cases for the next 50 days.
+
+## Data Exploration
+We will group data to find various patterns as well as wrangle with the dataset and perform summarisations to find relevant trends.
+
+```{r}
+head(covid_data)
+summary(covid_data)
+```
+
+### Statistics as of March 11
+
+```{r}
+# Filter data for March 11
+covid_data_recent <- covid_data %>% filter(ObservationDate =="2020-03-11")
+head(covid_data_recent)
+# Show number of confirmed
+sum(covid_data_recent$Confirmed)
+# Show number of recovered
+sum(covid_data_recent$Recovered)
+# Show number of deaths
+sum(covid_data_recent$Deaths)
+```
+
+### Plot number of cases over time
+
+```{r}
+# Show number of observations over time
+covid_observations <- covid_data %>% 
+  group_by(ObservationDate) %>%
+  summarize(count =n())
+head(covid_observations %>% arrange(desc(count)))
+
+# Plot the number of observations over time
+covid_observations %>% ggplot(aes(x=ObservationDate, y=count, group=1)) +
+  geom_point() + geom_line() +  labs(x = "Observation Dates", y = "Count of observations", 
+              title = "Count of observations over time")
+```
+
+```{r}
+# Show number of confirmed cases over time
+covid_confirmed <- covid_data %>% 
+  group_by(ObservationDate) %>%
+  summarize(total_confirmed = sum(Confirmed))
+head(covid_confirmed %>% arrange(desc(total_confirmed)))
+
+# Plot the number of confirmed cases over time
+covid_confirmed %>% ggplot(aes(x=ObservationDate, y=total_confirmed, group=1)) +
+  geom_point() + geom_line() +  labs(x = "Observation Dates", y = "Count of confirmed cases", 
+              title = "Count of confirmed cases over time")
+```
+
+```{r}
+# Show number of deaths cases over time
+covid_deaths <- covid_data %>% 
+  group_by(ObservationDate) %>%
+  summarize(total_deaths = sum(Deaths))
+head(covid_deaths %>% arrange(desc(total_deaths)))
+
+# Plot the number of deaths cases over time
+covid_deaths %>% ggplot(aes(x=ObservationDate, y=total_deaths, group=1)) +
+  geom_point() + geom_line() +  labs(x = "Observation Dates", y = "Count of deaths", 
+              title = "Count of deaths over time")
+```
+
+```{r}
+# Show number of recovered cases over time
+covid_recovered <- covid_data %>% 
+  group_by(ObservationDate) %>%
+  summarize(total_recovered = sum(Recovered))
+head(covid_recovered %>% arrange(desc(total_recovered)))
+
+# Plot the number of recovered cases over time
+covid_recovered %>% ggplot(aes(x=ObservationDate, y=total_recovered, group=1)) +
+  geom_point() + geom_line() +
+  labs(x = "Observation Dates", y = "Count of recovered", 
+              title = "Count of recovered over time")
+```
+
+Let us combine our confirmed, deaths, and recovered.
+
+```{r}
+# Show number of all cases over time
+covid_all <- covid_data %>% 
+  group_by(ObservationDate) %>%
+  summarize(total_confirmed=sum(Confirmed), total_recovered=sum(Recovered), total_deaths=sum(Deaths))
+head(covid_all)
+```
+
+```{r}
+covid_all_melted <- melt(covid_all, id.var='ObservationDate')
+head(covid_all_melted)
+
+covid_all_melted %>% ggplot(aes(x=ObservationDate, y=value, col=variable)) + 
+  geom_area(aes(fill=variable))
+```
+
+Based on the plots generated we can see that:
+
+* There has been a large spike in the number of confirmed cases between February 8 to 10. The trajectory is also continually increasing.
+* The number of deaths increased daily. We can also see the a smaller version of the spike aforementioned.
+* On the number of recovered cases, there has been a minimal number from January 22 to February 3 despite the increase in the number of infected cases. Bare in mind that the incubation period is 14-days.
+
+### Countries with most cases
+Which 10 countries have the most confirmed cases?
+```{r, fig.width=8}
+# Show top 10 Country.Region with cases
+covid_country_top10 <- covid_data_recent %>% 
+  group_by(Country.Region, Province.State, Confirmed) %>%
+    summarize(total_confirmed = sum(Confirmed)) %>% arrange(desc(total_confirmed))
+covid_country_top10 <- covid_country_top10[1:10,1:3]
+covid_country_top10
+
+# Plot the number of country cases over time
+covid_country_top10 %>% ggplot(aes(Country.Region, Confirmed)) +
+  geom_bar(stat="identity", aes(fill=Province.State)) + 
+  theme(legend.position = "right")
+```
+
+Majority of the cases in China are from Hubei. Italy, Iran and South Korea also succumbed to the pandemic. France, Germany and Spain also reports few hundreds of cases.
+
+### Spatial analysis using ggplot and map_data
+Note that the following plot:
+* It is much better viewed in .html version (uploaded in Github) or upon running the .Rmd file 
+* If both fails, you can still use the PDF file but zoom in on the map to detect the changes.
+```{r, fig.width=40, fig.height=120}
+# Load our time series data
+covid_data_timeseries <- read_csv(str_c('time_series_covid_19_confirmed.csv'))
+# Set to 50 daily entries count
+n_times <- 50
+# Prepare timeseries data, parse latitude longtiude data
+covid_data_ts_latlong <- covid_data_timeseries
+colnames(covid_data_ts_latlong) <- c(colnames(covid_data_ts_latlong)[1:4],
+  str_c('D1: ', str_pad(as.character(1:n_times), 2, 'left', '0'),
+        str_c(' - ', colnames(covid_data_ts_latlong)[5:(4 + n_times)])))
+# Pivot our latitude longitude data for ggplot use
+covid_data_ts_latlong_pivot <- covid_data_ts_latlong %>% pivot_longer(names_to = 'Confirmed.Time',
+                                                  values_to = 'Confirmed',
+                                                  cols = colnames(covid_data_ts_latlong)[5:(4 + n_times)])
+head(covid_data_ts_latlong_pivot)
+# Use ggplot map_data world, to display a global map
+world <- map_data('world')
+ggplot(legend = FALSE) +
+  # Plot our map
+  geom_polygon(data = world, aes(x = long, y = lat, group = group),
+               color = 'black', fill = 'antiquewhite') +  xlab('') + ylab('') + 
+  # Plot points of our confirmed cases using latitude/longitude data
+  geom_point(data = covid_data_ts_latlong_pivot, fill = 'red', color = 'black',
+             shape = 21, alpha = 0.6,
+             aes(x = Long, y = Lat, fill = Confirmed, size = Confirmed)) +
+  theme_minimal() +
+  # Set the scale from 0 to 30 for the shapes in the map
+  scale_size_continuous(range = c(0, 30)) + ggtitle('Occurrences Map - COVID19') +
+  theme(text = element_text(size = 12), legend.position = 'top',
+        panel.background = element_rect(fill='lightblue', colour='blue')) +
+  facet_wrap(~Confirmed.Time, ncol = 2)
+```
+
+## Data Modeling
+For this exercise we will use various timeseries forecasting methods such as Naive, HoltWinters, ARIMA and Simple Exponential Smoothing. We will evaluate each of their performance and compare predictions made. Mainly, we will be predicted the confirmed number of cases for the next 50 days since March 11, 2020.
+
+```{r}
+# Since the default ts() function is not a good tool to use for daily sampled data,
+# - we will use 'zoo' package for irregular time series data. This takes care of-
+# indexing for time-series data. Create a daily Date object - helps our work on dates
+inds <- seq(as.Date("2020-01-22"), as.Date("2020-03-11"), by = "day")
+# We link the time-series with our confirmed cases
+covid_confirmed_ts <- zoo(covid_confirmed$total_confirmed, inds)
+```
+
+### Naive
+One of the simplest forecasting is to reuse recent observations for predict the next one. We start with this, the naive forecast which can ba generated using the naive() function.
+```{r}
+# Initialize our Naive model. Forecast for the next 50 days
+model_naive <- naive(covid_confirmed_ts, h = 50)
+naive_forecast_max <- max(model_naive$mean)
+naive_forecast_max
+
+# The plot though will cause an issue as the x-axis is in days since the epoch (1970-01-01)
+# So we need to suppress the auto plotting of this axis and then plot our own
+plot(model_naive, xaxt ="n")
+Axis(inds, side = 1)
+```
+
+Using naive forecast, there is a more steady rate and highest number of predicted cases is `r round(naive_forecast_max)`
+
+### Simple Exponential Smoothing
+As opposed to naive which just uses the recent observations, exponential smoothing looks at older observations and has several configurable parameters that affect forecasting such as:
+
+* alpha - Value of smoothing parameter for the level (0 - 1)
+* lambda - Box-Cox transformation parameter.
+
+```{r}
+# For simple exponential smoothing we also plug in our time series data and predict for the next 50 days
+model_ses <- ses(covid_confirmed_ts, h = 50, alpha = 0.99, lambda="auto")
+ses_forecast_max <- max(model_ses$mean)
+ses_forecast_max
+
+plot(model_ses, xaxt ="n")
+Axis(inds, side = 1)
+```
+
+Using Simple Exponential Smooth the maximum predicted number of cases is `r round(ses_forecast_max)` 
+
+### HoltWinters
+Using HoltWinters method we can factor in the Trends, Seasonability and Level. These effects factor in questions such as annual sales trends (Black Friday Sales), weekends inactivity, and other recurring effects. It can be used to model complex seasonal and trend patterns.
+```{r}
+# Initialize our HoltWinters model, the es() function constructs a model and returns forecast and fitted values.
+# "AAM" denotes HoltWinters model, h is our forecast length, interval allows for prediction intervals
+model_AAM <- es(covid_confirmed_ts, "AAM", h=50, interval=TRUE, silent = "none")
+holtwinters_forecast_max <- max(model_AAM$forecast)
+holtwinters_forecast_max
+```
+
+Based on above forecast, with our current trend the highest number of confirmed cases with me `r round(holtwinters_forecast_max)` there is also an evident steady increase.
+
+### ARIMA
+Auto Regressive Integrated Moving Average models factor in lags and lagged errors. It has 3 terms: p (autoregression), d(moving average), q(difference) The model also describes autocorrelations of the observations.
+```{r}
+# Initialize our ARIMA model. It is straightforward as we only have to plug in our time series
+model_arima <- auto.arima(covid_confirmed_ts)
+
+# Forecast next 50 days for the ARIMA model
+forecast_arima <- forecast::forecast(model_arima, h=50)
+arima_forecast_max <- max(forecast_arima$mean)
+arima_forecast_max
+plot(forecast_arima, xaxt ="n")
+Axis(inds, side = 1)
+```
+
+Using the ARIMA model this is the forecast `r round(arima_forecast_max)` of cases for the next 50 days
+
+# Results
+Now let us tabulate our models' performance and maximum forecast for Confirmed cases.
+```{r}
+# Look at the Naive model performance and maximum forecast
+summary(model_naive)
+# Residual sd: 2431.0251 
+# Error measures:
+#                    ME    RMSE      MAE      MPE     MAPE MASE      ACF1
+# Training set 2557.347 3511.31 2557.347 9.697016 9.697016    1 0.3318278
+
+# Look at the SES model performance and maximum forecast
+summary(model_ses)
+#     AIC     AICc      BIC 
+# 674.1495 674.4048 677.9736 
+# 
+# Error measures:
+#                    ME     RMSE      MAE     MPE     MAPE      MASE      ACF1
+# Training set 2530.505 3499.967 2530.536 9.58068 9.586328 0.9895163 0.3540446
+
+# Look at the HoltWinters model performance and maximum forecast
+summary(model_AAM)
+# Loss function type: MSE; Loss function value: 5235844.5326
+# Error standard deviation: 2385.61
+# Information criteria:
+#      AIC     AICc      BIC     BICc 
+# 923.4458 924.3347 931.0939 932.8326 
+
+# Look at the ARIMA model performance and maximum forecast
+summary(model_arima)
+# AIC=901.81   AICc=902.34   BIC=907.48
+# 
+# Training set error measures:
+#                   ME     RMSE      MAE       MPE     MAPE    MASE        ACF1
+# Training set 21.2316 2231.458 1176.584 -13.61523 16.47069 0.46008 -0.01570852
+```
+
+## Model performance
+For evaluation, there is a combination of error metrics available: ME, RMSE, MAE, MAPE. Additionally we are introducted to AIC and BIC which are penalized-likelihood criteria to predict best subsets. In general the lower the AIC and BIC, the better the model performance.
+
+If we compare our Naive and SES models, they have similar error metrics, and SES has better AIC/BIC values compared to our HoltWinters and ARIMA model.
+
+On the other hand if we look at HoltWInter and ARIMA, ARIMA has better AIC/BIC values and it performed relatively better compared to our Naive and SES models.
+
+## Model forecast
+| Forecast model | Maximum forecasted cases |
+|-------|--------------------------|
+| Naive | `r naive_forecast_max` |
+| Simple Exponential Smoothing (SES) | `r ses_forecast_max` |
+| Holt-Winters | `r holtwinters_forecast_max` |
+| ARIMA | `r arima_forecast_max` |
+
+We can see that the highest forecast came from HoltWinters model, while the lowest came from SES.
+
+# Conclusion
+In this short exercise we were able to explore the Coronavirus dataset and do a forecast on the number of cases for the next 50 days.
+
+## Summary
+* The dplyr functions, including group_by, and summarize worked splendidly for the data set. We have explored various ways of data exploration with dplyr.
+
+* We were able to practice a lot with timeseries data, i.e., 'zoo' time series, ts() function, as well as plotting these series.
+
+* We were also able to display a global map using ggplot of Confirmed cases. (Note: view plot as .html, run .Rmd, or zoom in on the PDF page)
+
+* We also observed different forecast behaviors using our four models. Some have linear predictions whereby others were more non-linear.
+
+* We still have not explored trends, seasonality, and recurring patters since we only have 50-days worth of datapoints.
+
+## Recommendations
+* A deeper look on the Province.State and Country.Region to customize the forecast models and parameters.
+
+* Particular attention to recent events, lock-downs, and bans, and how they relate with the forecasting.
+
+* Finally, humanity as a whole is ever-hopeful and optimistic in finding a vaccine. A model forecasting the decline in Confirmed cases as a product of developing a vaccine will be useful for future consideration.
