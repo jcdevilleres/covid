@@ -1,4 +1,4 @@
-## ----include=FALSE--------------------------------------------------------------------------------------------------------------------------------------------------
+## ----include=FALSE-----------------------------------------------------------------------
 rm(list=ls())
 
 if (!require("pacman")) install.packages("pacman")
@@ -11,12 +11,12 @@ covid_data <- read.csv("covid_19_data.csv", header = TRUE)
 covid_data$ObservationDate <- as.Date(covid_data$ObservationDate, format='%m/%d/%Y')
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 head(covid_data)
 summary(covid_data)
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 # Filter data for March 11
 covid_data_recent <- covid_data %>% filter(ObservationDate =="2020-03-11")
 head(covid_data_recent)
@@ -28,7 +28,7 @@ sum(covid_data_recent$Recovered)
 sum(covid_data_recent$Deaths)
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 # Show number of observations over time
 covid_observations <- covid_data %>% 
   group_by(ObservationDate) %>%
@@ -41,7 +41,7 @@ covid_observations %>% ggplot(aes(x=ObservationDate, y=count, group=1)) +
               title = "Count of observations over time")
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 # Show number of confirmed cases over time
 covid_confirmed <- covid_data %>% 
   group_by(ObservationDate) %>%
@@ -54,7 +54,7 @@ covid_confirmed %>% ggplot(aes(x=ObservationDate, y=total_confirmed, group=1)) +
               title = "Count of confirmed cases over time")
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 # Show number of deaths cases over time
 covid_deaths <- covid_data %>% 
   group_by(ObservationDate) %>%
@@ -67,7 +67,7 @@ covid_deaths %>% ggplot(aes(x=ObservationDate, y=total_deaths, group=1)) +
               title = "Count of deaths over time")
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 # Show number of recovered cases over time
 covid_recovered <- covid_data %>% 
   group_by(ObservationDate) %>%
@@ -81,7 +81,7 @@ covid_recovered %>% ggplot(aes(x=ObservationDate, y=total_recovered, group=1)) +
               title = "Count of recovered over time")
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 # Show number of all cases over time
 covid_all <- covid_data %>% 
   group_by(ObservationDate) %>%
@@ -89,7 +89,7 @@ covid_all <- covid_data %>%
 head(covid_all)
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 covid_all_melted <- melt(covid_all, id.var='ObservationDate')
 head(covid_all_melted)
 
@@ -97,7 +97,7 @@ covid_all_melted %>% ggplot(aes(x=ObservationDate, y=value, col=variable)) +
   geom_area(aes(fill=variable))
 
 
-## ---- fig.width=8---------------------------------------------------------------------------------------------------------------------------------------------------
+## ---- fig.width=8------------------------------------------------------------------------
 # Show top 10 Country.Region with cases
 covid_country_top10 <- covid_data_recent %>% 
   group_by(Country.Region, Province.State, Confirmed) %>%
@@ -111,7 +111,7 @@ covid_country_top10 %>% ggplot(aes(Country.Region, Confirmed)) +
   theme(legend.position = "right")
 
 
-## ---- fig.width=6, fig.height=12------------------------------------------------------------------------------------------------------------------------------------
+## ---- fig.width=6, fig.height=12---------------------------------------------------------
 # Load our time series data
 covid_data_timeseries <- read_csv(str_c('time_series_covid_19_confirmed.csv'))
 # Due to plotting issues of all 50 maps, we will only get 10% and 90% percentile of date points (i.e., Day 1 to 5, and Day 45 to 50)
@@ -147,7 +147,7 @@ ggplot(legend = FALSE) +
   facet_wrap(~Confirmed.Time, ncol = 2)
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 # Since the default ts() function is not a good tool to use for daily sampled data,
 # - we will use 'zoo' package for irregular time series data. This takes care of-
 # indexing for time-series data. Create a daily Date object - helps our work on dates
@@ -156,7 +156,7 @@ inds <- seq(as.Date("2020-01-22"), as.Date("2020-03-11"), by = "day")
 covid_confirmed_ts <- zoo(covid_confirmed$total_confirmed, inds)
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
 # Initialize our Naive model. Forecast for the next 50 days
 model_naive <- naive(covid_confirmed_ts, h = 50)
 naive_forecast_max <- max(model_naive$mean)
@@ -168,7 +168,18 @@ plot(model_naive, xaxt ="n")
 Axis(inds, side = 1)
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
+# Initialize our Naive model. Forecast for the next 50 days
+model_naive <- snaive(covid_confirmed_ts, h = 50)
+max(model_naive$mean)
+
+# The plot though will cause an issue as the x-axis is in days since the epoch (1970-01-01)
+# So we need to suppress the auto plotting of this axis and then plot our own
+plot(model_naive, xaxt ="n")
+Axis(inds, side = 1)
+
+
+## ----------------------------------------------------------------------------------------
 # For simple exponential smoothing we also plug in our time series data and predict for the next 50 days
 model_ses <- ses(covid_confirmed_ts, h = 50, alpha = 0.99, lambda="auto")
 ses_forecast_max <- max(model_ses$mean)
@@ -178,7 +189,18 @@ plot(model_ses, xaxt ="n")
 Axis(inds, side = 1)
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
+# For simple exponential smoothing we also plug in our time series data and predict for the next 50 days
+# lambda="auto" Box Cox transmaton allows non-normal dependent variables into normal distribution
+model_ses <- ses(covid_confirmed_ts, h = 50, alpha = 0.75, lambda="auto",
+                 damped=FALSE,  exponential=TRUE, beta = 0.75)
+max(model_ses$mean)
+
+plot(model_ses, xaxt ="n")
+Axis(inds, side = 1)
+
+
+## ----------------------------------------------------------------------------------------
 # Initialize our HoltWinters model, the es() function constructs a model and returns forecast and fitted values.
 # "AAM" denotes HoltWinters model, h is our forecast length, interval allows for prediction intervals
 model_AAM <- es(covid_confirmed_ts, "AAM", h=50, interval=TRUE, silent = "none")
@@ -186,8 +208,21 @@ holtwinters_forecast_max <- max(model_AAM$forecast)
 holtwinters_forecast_max
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
+model_AAM <- es(covid_confirmed_ts, "AAdN", h=50, interval="l", 
+                silent = "none")
+max(model_AAM$forecast)
+
+
+## ----------------------------------------------------------------------------------------
+model_AAM <- es(covid_confirmed_ts, "MAdM", h=50, interval="np",
+                silent = "none")
+max(model_AAM$forecast)
+
+
+## ----------------------------------------------------------------------------------------
 # Initialize our ARIMA model. It is straightforward as we only have to plug in our time series
+# The auto.arima function return the best model based on AIC/BIC value, we can enter various parameters including p, d, qand seasonaility
 model_arima <- auto.arima(covid_confirmed_ts)
 
 # Forecast next 50 days for the ARIMA model
@@ -198,7 +233,21 @@ plot(forecast_arima, xaxt ="n")
 Axis(inds, side = 1)
 
 
-## -------------------------------------------------------------------------------------------------------------------------------------------------------------------
+## ----------------------------------------------------------------------------------------
+model_arima <- auto.arima(covid_confirmed_ts, max.p = 5,
+  max.q = 5, max.P = 2, max.Q = 2,
+  max.order = 5, max.d = 2, max.D = 1,
+  start.p = 2, start.q = 2, start.P = 1, start.Q = 1,
+  stationary = FALSE,
+  seasonal = FALSE)
+
+forecast_arima <- forecast::forecast(model_arima, h=50)
+max(forecast_arima$mean)
+plot(forecast_arima, xaxt ="n")
+Axis(inds, side = 1)
+
+
+## ----------------------------------------------------------------------------------------
 # Look at the Naive model performance and maximum forecast
 summary(model_naive)
 # Residual sd: 2431.0251 

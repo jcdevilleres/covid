@@ -32,6 +32,7 @@ covid_data$ObservationDate <- as.Date(covid_data$ObservationDate, format='%m/%d/
 This capstone report aims to explore the Coronavirus dataset from Kaggle and do a straight-forward forecast on the number of cases for the next 50 days. We will explore the data to find various trends and patterns and also to forecast using different models future Coronavirus cases. The dataset consists of around 4,935 rows of records of daily cases from January 22 to March 11. The data is mainly sourced out from Johns Hopkins University for education and academic research purposes, where they aggregated data from variou globalresources such as, World Health Organization, US Center for Disease Control, Canadian Government, China CDC, Italy Ministry of Health and others. 
 
 The following are the column descriptions:
+
   * Sno - Serial number
   * ObservationDate - Date of the observation in MM/DD/YYYY
   * Province/State - Province or state of the observation (Could be empty when missing)
@@ -233,6 +234,21 @@ Axis(inds, side = 1)
 
 Using naive forecast, there is a more steady rate and highest number of predicted cases is `r round(naive_forecast_max)`
 
+```{r}
+# Initialize our Naive model. Forecast for the next 50 days
+model_naive <- snaive(covid_confirmed_ts, h = 50)
+max(model_naive$mean)
+
+# The plot though will cause an issue as the x-axis is in days since the epoch (1970-01-01)
+# So we need to suppress the auto plotting of this axis and then plot our own
+plot(model_naive, xaxt ="n")
+Axis(inds, side = 1)
+```
+
+Seasonal naive forecast is relatively the same.
+
+Note: Seasonal forecasts take into account similarities between values of a full period as before, for instance January 2020 predictions have equal / similar values to January 2019 predictions.
+
 ### Simple Exponential Smoothing
 As opposed to naive which just uses the recent observations, exponential smoothing looks at older observations and has several configurable parameters that affect forecasting such as:
 
@@ -251,6 +267,20 @@ Axis(inds, side = 1)
 
 Using Simple Exponential Smooth the maximum predicted number of cases is `r round(ses_forecast_max)` 
 
+Let us try with a different value for alpha, smoothing parameters
+```{r}
+# For simple exponential smoothing we also plug in our time series data and predict for the next 50 days
+# lambda="auto" Box Cox transmaton allows non-normal dependent variables into normal distribution
+model_ses <- ses(covid_confirmed_ts, h = 50, alpha = 0.75, lambda="auto",
+                 damped=FALSE,  exponential=TRUE, beta = 0.75)
+max(model_ses$mean)
+
+plot(model_ses, xaxt ="n")
+Axis(inds, side = 1)
+```
+
+For simple exponential smoothing, we have tested varius parameters, and we got relatively similar forecast.
+
 ### HoltWinters
 Using HoltWinters method we can factor in the Trends, Seasonability and Level. These effects factor in questions such as annual sales trends (Black Friday Sales), weekends inactivity, and other recurring effects. It can be used to model complex seasonal and trend patterns.
 ```{r}
@@ -263,10 +293,32 @@ holtwinters_forecast_max
 
 Based on above forecast, with our current trend the highest number of confirmed cases with me `r round(holtwinters_forecast_max)` there is also an evident steady increase.
 
+Using the same function, let us try different types of interval, loss function, and ETS model:
+
+* The first letter stands for the type of the error term ("A" or "M"), 
+* The second (and sometimes the third as well) is for the trend ("N", "A", "Ad", "M" or "Md"), 
+* The last one is for the type of seasonality ("N", "A" or "M")
+
+```{r}
+model_AAM <- es(covid_confirmed_ts, "AAdN", h=50, interval="l", 
+                silent = "none")
+max(model_AAM$forecast)
+```
+The "AAdN" model has a decreased forecast
+
+```{r}
+model_AAM <- es(covid_confirmed_ts, "MAdM", h=50, interval="np",
+                silent = "none")
+max(model_AAM$forecast)
+```
+
+The "MAdM" which takes into account Multiplicative error term and seasonality yields the highest forecast of cases.
+
 ### ARIMA
 Auto Regressive Integrated Moving Average models factor in lags and lagged errors. It has 3 terms: p (autoregression), d(moving average), q(difference) The model also describes autocorrelations of the observations.
 ```{r}
 # Initialize our ARIMA model. It is straightforward as we only have to plug in our time series
+# The auto.arima function return the best model based on AIC/BIC value, we can enter various parameters including p, d, qand seasonaility
 model_arima <- auto.arima(covid_confirmed_ts)
 
 # Forecast next 50 days for the ARIMA model
@@ -278,6 +330,23 @@ Axis(inds, side = 1)
 ```
 
 Using the ARIMA model this is the forecast `r round(arima_forecast_max)` of cases for the next 50 days
+
+Let us try another model with different values 
+```{r}
+model_arima <- auto.arima(covid_confirmed_ts, max.p = 5,
+  max.q = 5, max.P = 2, max.Q = 2,
+  max.order = 5, max.d = 2, max.D = 1,
+  start.p = 2, start.q = 2, start.P = 1, start.Q = 1,
+  stationary = FALSE,
+  seasonal = FALSE)
+
+forecast_arima <- forecast::forecast(model_arima, h=50)
+max(forecast_arima$mean)
+plot(forecast_arima, xaxt ="n")
+Axis(inds, side = 1)
+```
+
+Based on the forecast, it seems like we got the same model even though we had differing values for parameters, the initial auto arima model did its job to return the best model.
 
 # Results
 Now let us tabulate our models' performance and maximum forecast for Confirmed cases.
@@ -340,7 +409,7 @@ In this short exercise we were able to explore the Coronavirus dataset and do a 
 
 * We were able to practice a lot with timeseries data, i.e., 'zoo' time series, ts() function, as well as plotting these series.
 
-* We were also able to display a global map using ggplot of Confirmed cases. (Note: view plot as .html, run .Rmd, or zoom in on the PDF page)
+* We were also able to display a global map using ggplot of Confirmed cases.
 
 * We also observed different forecast behaviors using our four models. Some have linear predictions whereby others were more non-linear.
 
@@ -352,4 +421,9 @@ In this short exercise we were able to explore the Coronavirus dataset and do a 
 * Particular attention to recent events, lock-downs, and bans, and how they relate with the forecasting.
 
 * Finally, humanity as a whole is ever-hopeful and optimistic in finding a vaccine. A model forecasting the decline in Confirmed cases as a product of developing a vaccine will be useful for future consideration.
+
+```{r include=FALSE}
+# Save Rmd as R file
+knitr::purl("cyosolution.Rmd")
+```
 
